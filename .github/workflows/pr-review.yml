@@ -1,0 +1,114 @@
+name: Reusable PR Review
+
+on:
+  workflow_call:
+    inputs:
+      review_profile:
+        description: Shared review profile to apply, for example java or java-spring
+        required: true
+        type: string
+      extra_rules_path:
+        description: Optional path in the caller repository for extra markdown rules
+        required: false
+        default: ""
+        type: string
+      reviewer_repo:
+        description: Reviewer engine repository in owner/name format
+        required: false
+        default: hcagricakir/ai-pr-reviewer
+        type: string
+      reviewer_ref:
+        description: Git ref to checkout for the reviewer engine repository
+        required: false
+        default: main
+        type: string
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4-mini' }}
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Resolve shared workflow repository ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_ref='${{ github.workflow_ref }}'
+          workflow_repo="${workflow_ref%%/.github/workflows/*}"
+          workflow_version="${workflow_ref##*@}"
+          echo "WORKFLOW_REPOSITORY=${workflow_repo}" >> "$GITHUB_ENV"
+          echo "WORKFLOW_VERSION=${workflow_version}" >> "$GITHUB_ENV"
+
+      - name: Checkout shared workflow repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.WORKFLOW_REPOSITORY }}
+          ref: ${{ env.WORKFLOW_VERSION }}
+          path: .ai-pr-review-workflows
+
+      - name: Checkout reviewer engine repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.reviewer_repo }}
+          ref: ${{ inputs.reviewer_ref }}
+          path: .ai-pr-reviewer-engine
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build reviewer engine
+        working-directory: .ai-pr-reviewer-engine
+        run: ./mvnw -q -DskipTests package
+
+      - name: Require pull request context
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ github.event.pull_request.number }}" ]]; then
+            echo "This reusable workflow must be called from a pull_request-triggered workflow."
+            exit 1
+          fi
+
+      - name: Combine review rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash .ai-pr-review-workflows/scripts/compose-review-rules.sh \
+            ".ai-pr-review-workflows/review-rules" \
+            "${{ inputs.review_profile }}" \
+            "${RUNNER_TEMP}/combined-review-rules.md" \
+            "${{ inputs.extra_rules_path }}"
+          echo "COMBINED_RULES_FILE=${RUNNER_TEMP}/combined-review-rules.md" >> "$GITHUB_ENV"
+
+      - name: Run reviewer engine and publish PR comments
+        working-directory: .ai-pr-reviewer-engine
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          echo "Using OpenAI model: ${OPENAI_MODEL}"
+          java -jar target/ai-pr-reviewer.jar \
+            review \
+            --config config/application.example.yml \
+            --github-pr "${{ github.event.pull_request.number }}" \
+            --provider openai \
+            --output-format markdown \
+            --publish-github-review-comments \
+            --extra-rules-file "${COMBINED_RULES_FILE}"
