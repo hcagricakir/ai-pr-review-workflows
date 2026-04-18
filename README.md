@@ -51,6 +51,7 @@ The reusable workflow:
 - `extra_rules_path`: optional path in the caller repository, for example `.github/review/business-rules.md`
 - `reviewer_repo`: reviewer engine repository, default `hcagricakir/ai-pr-reviewer`
 - `reviewer_ref`: reviewer engine git ref, default `main`
+- `workflow_ref`: git ref used to checkout shared rule files and helper scripts from `hcagricakir/ai-pr-review-workflows`, default `main`
 
 ## Required Permissions
 
@@ -120,6 +121,7 @@ jobs:
       extra_rules_path: .github/review/business-rules.md
       reviewer_repo: hcagricakir/ai-pr-reviewer
       reviewer_ref: main
+      workflow_ref: main
 
   review_on_comment:
     if: ${{ github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '!review') }}
@@ -133,6 +135,7 @@ jobs:
       extra_rules_path: .github/review/business-rules.md
       reviewer_repo: hcagricakir/ai-pr-reviewer
       reviewer_ref: main
+      workflow_ref: main
 ```
 
 ## Consuming Repository Setup

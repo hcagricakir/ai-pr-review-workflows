@@ -22,6 +22,11 @@ on:
         required: false
         default: main
         type: string
+      workflow_ref:
+        description: Git ref to checkout for the shared workflow repository assets
+        required: false
+        default: main
+        type: string
     secrets:
       OPENAI_API_KEY:
         required: true
@@ -77,21 +82,11 @@ jobs:
         with:
           ref: ${{ steps.pr-context.outputs.head_sha }}
 
-      - name: Resolve shared workflow repository ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          workflow_ref='${{ github.workflow_ref }}'
-          workflow_repo="${workflow_ref%%/.github/workflows/*}"
-          workflow_version="${workflow_ref##*@}"
-          echo "WORKFLOW_REPOSITORY=${workflow_repo}" >> "$GITHUB_ENV"
-          echo "WORKFLOW_VERSION=${workflow_version}" >> "$GITHUB_ENV"
-
       - name: Checkout shared workflow repository
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.WORKFLOW_REPOSITORY }}
-          ref: ${{ env.WORKFLOW_VERSION }}
+          repository: hcagricakir/ai-pr-review-workflows
+          ref: ${{ inputs.workflow_ref }}
           path: .ai-pr-review-workflows
 
       - name: Resolve reviewer engine ref
