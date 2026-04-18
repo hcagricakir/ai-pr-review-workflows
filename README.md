@@ -36,13 +36,14 @@ ai-pr-review-workflows/
 
 The reusable workflow:
 
-1. Checks out the caller repository.
-2. Checks out this shared workflow repository.
-3. Checks out the reviewer engine repository configured by input.
-4. Builds the reviewer engine with Java 21.
-5. Merges shared and optional repository-specific markdown rules.
-6. Runs the reviewer CLI against the active pull request.
-7. Publishes GitHub pull request comments through the engine.
+1. Resolves pull request metadata from the caller event.
+2. Checks out the caller repository at the pull request head commit.
+3. Checks out this shared workflow repository.
+4. Checks out the reviewer engine repository configured by input.
+5. Builds the reviewer engine with Java 21.
+6. Merges shared and optional repository-specific markdown rules.
+7. Runs the reviewer CLI against the active pull request.
+8. Publishes GitHub pull request comments through the engine.
 
 ## Workflow Inputs
 
@@ -58,7 +59,12 @@ The reusable workflow job uses:
 - `contents: read`
 - `pull-requests: write`
 
-The caller workflow must run from pull request events where the default GitHub token can comment on the pull request.
+The caller workflow must run from:
+
+- `pull_request`, or
+- `issue_comment` on a pull request
+
+Comment-triggered runs are restricted to same-repository pull requests. That avoids checking out untrusted fork code with reusable workflow secrets.
 
 ## Secrets And Variables
 
@@ -71,6 +77,8 @@ Preferred repository variable:
 - `OPENAI_MODEL`
 
 If `OPENAI_MODEL` is not set, the workflow falls back explicitly to `gpt-5.4-mini`. That fallback is logged during workflow execution so repositories can see which model is being used.
+
+These values must be configured in the consuming repository that calls the reusable workflow. They do not need to be configured in `ai-pr-review-workflows` unless that repository also becomes a caller itself.
 
 ## Rule Layering
 
@@ -96,10 +104,26 @@ name: PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
 
 jobs:
-  review:
-    uses: hcagricakir/ai-pr-review-workflows/.github/workflows/pr-review.yml@v1
+  review_on_pr_update:
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: hcagricakir/ai-pr-review-workflows/.github/workflows/pr-review.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+    secrets: inherit
+    with:
+      review_profile: java-spring
+      extra_rules_path: .github/review/business-rules.md
+      reviewer_repo: hcagricakir/ai-pr-reviewer
+      reviewer_ref: main
+
+  review_on_comment:
+    if: ${{ github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '!review') }}
+    uses: hcagricakir/ai-pr-review-workflows/.github/workflows/pr-review.yml@main
     permissions:
       contents: read
       pull-requests: write
