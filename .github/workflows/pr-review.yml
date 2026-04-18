@@ -36,8 +36,46 @@ jobs:
       OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4-mini' }}
 
     steps:
+      - name: Resolve pull request context
+        id: pr-context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber =
+              context.eventName === 'pull_request'
+                ? context.payload.pull_request?.number
+                : context.eventName === 'issue_comment' && context.payload.issue?.pull_request
+                  ? context.payload.issue.number
+                  : null;
+
+            if (!prNumber) {
+              core.setFailed('This reusable workflow must be called from a pull_request event or a PR issue_comment event.');
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            core.setOutput('number', String(pr.number));
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('head_repo', pr.head.repo.full_name);
+
+      - name: Guard issue_comment execution for same-repository pull requests
+        if: ${{ github.event_name == 'issue_comment' && steps.pr-context.outputs.head_repo != github.repository }}
+        shell: bash
+        run: |
+          echo "Comment-triggered reviews are only enabled for pull requests whose head repository matches ${GITHUB_REPOSITORY}."
+          exit 1
+
       - name: Checkout caller repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-context.outputs.head_sha }}
 
       - name: Resolve shared workflow repository ref
         shell: bash
@@ -56,11 +94,22 @@ jobs:
           ref: ${{ env.WORKFLOW_VERSION }}
           path: .ai-pr-review-workflows
 
+      - name: Resolve reviewer engine ref
+        id: reviewer-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          reviewer_ref='${{ inputs.reviewer_ref }}'
+          if [[ -z "${reviewer_ref}" ]]; then
+            reviewer_ref='${{ steps.pr-context.outputs.head_ref }}'
+          fi
+          echo "value=${reviewer_ref}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout reviewer engine repository
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.reviewer_repo }}
-          ref: ${{ inputs.reviewer_ref }}
+          ref: ${{ steps.reviewer-ref.outputs.value }}
           path: .ai-pr-reviewer-engine
 
       - name: Setup Java
@@ -72,15 +121,6 @@ jobs:
       - name: Build reviewer engine
         working-directory: .ai-pr-reviewer-engine
         run: ./mvnw -q -DskipTests package
-
-      - name: Require pull request context
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${{ github.event.pull_request.number }}" ]]; then
-            echo "This reusable workflow must be called from a pull_request-triggered workflow."
-            exit 1
-          fi
 
       - name: Combine review rules
         shell: bash
@@ -101,13 +141,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
-          GITHUB_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          GITHUB_BASE_BRANCH: ${{ steps.pr-context.outputs.base_ref }}
         run: |
           echo "Using OpenAI model: ${OPENAI_MODEL}"
           java -jar target/ai-pr-reviewer.jar \
             review \
             --config config/application.example.yml \
-            --github-pr "${{ github.event.pull_request.number }}" \
+            --github-pr "${{ steps.pr-context.outputs.number }}" \
             --provider openai \
             --output-format markdown \
             --publish-github-review-comments \
