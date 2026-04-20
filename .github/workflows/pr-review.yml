@@ -4,13 +4,13 @@ on:
   workflow_call:
     inputs:
       review_profile:
-        description: Shared review profile to apply, for example java or java-spring
+        description: Shared review profile bundle to apply, for example java or java-spring
         required: true
         type: string
       extra_rules_path:
-        description: Optional path in the caller repository for extra markdown rules
+        description: Optional file or directory in the caller repository for extra markdown rules
         required: false
-        default: ""
+        default: ".github/review"
         type: string
       reviewer_repo:
         description: Reviewer engine repository in owner/name format
@@ -34,6 +34,7 @@ on:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
@@ -112,6 +113,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Build reviewer engine
         working-directory: .ai-pr-reviewer-engine
@@ -127,6 +129,17 @@ jobs:
             "${RUNNER_TEMP}/combined-review-rules.md" \
             "${{ inputs.extra_rules_path }}"
           echo "COMBINED_RULES_FILE=${RUNNER_TEMP}/combined-review-rules.md" >> "$GITHUB_ENV"
+
+      - name: Summarize review configuration
+        shell: bash
+        run: |
+          {
+            echo "### AI PR Review"
+            echo "- Review profile: \`${{ inputs.review_profile }}\`"
+            echo "- Repo-local rules path: \`${{ inputs.extra_rules_path }}\`"
+            echo "- Reviewer engine: \`${{ inputs.reviewer_repo }}@${{ steps.reviewer-ref.outputs.value }}\`"
+            echo "- OpenAI model: \`${OPENAI_MODEL}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run reviewer engine and publish PR comments
         working-directory: .ai-pr-reviewer-engine

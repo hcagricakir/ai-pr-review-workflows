@@ -8,6 +8,7 @@ It owns:
 
 - reusable GitHub Actions orchestration
 - shared markdown review rules
+- rule composition and layering
 - setup and usage documentation
 
 It does not own the review engine implementation. The workflow checks out and builds a separate reviewer engine repository.
@@ -25,9 +26,18 @@ That engine repository contains the Java CLI, prompt assembly, AI provider integ
 ```text
 ai-pr-review-workflows/
 ├── .github/workflows/pr-review.yml
-├── review-rules/common.md
-├── review-rules/java.md
-├── review-rules/spring.md
+├── review-rules/
+│   ├── reviewer-output.md
+│   ├── common.md
+│   ├── java.md
+│   ├── spring.md
+│   ├── api-contracts.md
+│   ├── persistence.md
+│   ├── messaging.md
+│   ├── testing.md
+│   └── profiles/
+│       ├── java.txt
+│       └── java-spring.txt
 ├── scripts/compose-review-rules.sh
 └── README.md
 ```
@@ -41,14 +51,88 @@ The reusable workflow:
 3. Checks out this shared workflow repository.
 4. Checks out the reviewer engine repository configured by input.
 5. Builds the reviewer engine with Java 21.
-6. Merges shared and optional repository-specific markdown rules.
+6. Composes shared and optional repository-local markdown rules.
 7. Runs the reviewer CLI against the active pull request.
 8. Publishes GitHub pull request comments through the engine.
 
+## Convention Sources
+
+The shared rules were tightened using repeated patterns observed in local repositories rather than generic best-practice lists.
+
+The rules emphasize only conventions that were repeated, meaningful, and enforceable in review. They intentionally do not encode business rules that appeared isolated to a single repository.
+
+Examples of recurring conventions that now drive the review bundles:
+
+- layered `app` / `core` / `domain` / `plug` or `client` module boundaries
+- controller-to-service boundaries with minimal transport-layer logic
+- request and parameter validation at the API boundary via `@Validated`, `@Valid`, and custom validators
+- `ServiceResponse`-style API envelopes and centralized rollback exception handling
+- dedicated mapper usage for DTO boundaries
+- explicit transaction scopes on multi-write service flows
+- repository methods that translate missing rows or empty optionals into domain failures
+- centralized topic constants plus environment-aware Kafka naming
+- post-commit event publishing for state-dependent messages
+- focused service tests, `Swagger2SpecTest` contract checks, and EmbeddedKafka coverage where message behavior changes
+
+## Rule Structure
+
+The rule system is now split into three layers:
+
+1. Always-on reviewer behavior:
+   - `review-rules/reviewer-output.md`
+   - `review-rules/common.md`
+2. Profile bundle:
+   - resolved from `review-rules/profiles/<review_profile>.txt` when present
+   - falls back to the legacy `review_profile` split-by-`-` behavior for backward compatibility
+3. Optional repository-local rules:
+   - appended from a single markdown file, or
+   - appended from every `*.md` file in a directory, in lexical order
+
+## Profile Bundles
+
+Current profile bundles:
+
+- `java`
+  - `java.md`
+  - `api-contracts.md`
+  - `persistence.md`
+  - `testing.md`
+- `java-spring`
+  - `java.md`
+  - `spring.md`
+  - `api-contracts.md`
+  - `persistence.md`
+  - `messaging.md`
+  - `testing.md`
+
+This keeps the caller-facing profile name simple while allowing the rule set behind that profile to grow in a controlled way.
+
+## Comment Brevity And Suggestions
+
+The shared rules now explicitly steer the reviewer toward shorter, higher-signal comments.
+
+Expected comment shape:
+
+- short issue title
+- 2-4 short sentences
+- clear risk or regression path
+- no long background explanation
+- no style-only noise
+
+GitHub code suggestions are now requested only when the fix is:
+
+- local
+- clear
+- safe in a small patch
+
+Suggestions are explicitly discouraged for broad rewrites, speculative refactors, or business-dependent fixes.
+
+Whether the suggestion renders correctly in GitHub depends on the reviewer engine preserving markdown suggestion blocks when publishing review comments.
+
 ## Workflow Inputs
 
-- `review_profile`: shared profile such as `java` or `java-spring`
-- `extra_rules_path`: optional path in the caller repository, for example `.github/review/business-rules.md`
+- `review_profile`: shared review profile bundle such as `java` or `java-spring`
+- `extra_rules_path`: optional file or directory in the caller repository, default `.github/review`
 - `reviewer_repo`: reviewer engine repository, default `hcagricakir/ai-pr-reviewer`
 - `reviewer_ref`: reviewer engine git ref, default `main`
 - `workflow_ref`: git ref used to checkout shared rule files and helper scripts from `hcagricakir/ai-pr-review-workflows`, default `main`
@@ -77,25 +161,43 @@ Preferred repository variable:
 
 - `OPENAI_MODEL`
 
-If `OPENAI_MODEL` is not set, the workflow falls back explicitly to `gpt-5.4-mini`. That fallback is logged during workflow execution so repositories can see which model is being used.
+If `OPENAI_MODEL` is not set, the workflow falls back explicitly to `gpt-5.4-mini`.
 
 These values must be configured in the consuming repository that calls the reusable workflow. They do not need to be configured in `ai-pr-review-workflows` unless that repository also becomes a caller itself.
 
 ## Rule Layering
 
-Rule composition is intentionally simple:
+Rule composition is handled by `scripts/compose-review-rules.sh`.
 
-1. `review-rules/common.md` is always included.
-2. `review_profile` is split on `-`.
-3. Each profile part resolves to `review-rules/<part>.md`.
-4. If `extra_rules_path` exists in the caller repository, it is appended last.
+Composition order:
 
-Examples:
+1. `review-rules/reviewer-output.md`
+2. `review-rules/common.md`
+3. profile bundle files from `review-rules/profiles/<review_profile>.txt`
+4. repo-local rules from `extra_rules_path`
 
-- `java` resolves to `common.md` + `java.md`
-- `java-spring` resolves to `common.md` + `java.md` + `spring.md`
+If a profile bundle file does not exist, the script falls back to the legacy behavior:
 
-The merge is handled by `scripts/compose-review-rules.sh`.
+1. split `review_profile` on `-`
+2. resolve each part to `review-rules/<part>.md`
+3. append them once each
+
+Repository-local layering rules:
+
+- if `extra_rules_path` points to a file, that file is appended last
+- if `extra_rules_path` points to a directory, every `*.md` file in that directory is appended last in lexical order
+- missing repo-local paths do not fail the workflow
+
+Recommended repository-local layout:
+
+```text
+.github/review/
+├── business-rules.md
+├── api-exceptions.md
+└── rollout-notes.md
+```
+
+Use lexical prefixes such as `10-`, `20-`, `30-` if a specific order matters.
 
 ## Example Usage
 
@@ -118,7 +220,7 @@ jobs:
     secrets: inherit
     with:
       review_profile: java-spring
-      extra_rules_path: .github/review/business-rules.md
+      extra_rules_path: .github/review
       reviewer_repo: hcagricakir/ai-pr-reviewer
       reviewer_ref: main
       workflow_ref: main
@@ -132,7 +234,7 @@ jobs:
     secrets: inherit
     with:
       review_profile: java-spring
-      extra_rules_path: .github/review/business-rules.md
+      extra_rules_path: .github/review
       reviewer_repo: hcagricakir/ai-pr-reviewer
       reviewer_ref: main
       workflow_ref: main
@@ -156,16 +258,25 @@ Recommended starting value:
 
 - `gpt-5.4-mini`
 
-### 3. Optionally add business rules
+### 3. Optionally add repository-local review rules
 
-Repository-specific business/domain rules can live at:
+Recommended path:
 
 ```text
-.github/review/business-rules.md
+.github/review/
 ```
 
-When that file exists, pass it through `extra_rules_path`. If the file does not exist, the workflow skips it without failing.
+This directory can contain one or many markdown files. If the directory does not exist, the workflow skips it without failing.
 
 ## Extensibility
 
-This repository keeps orchestration intentionally small. Future additions can extend profile coverage or engine selection without coupling those concerns into the engine repository.
+This repository keeps orchestration intentionally small.
+
+Future extension points are:
+
+- adding new topical rule files
+- adding new profile bundle manifests under `review-rules/profiles/`
+- adding repo-local markdown files without changing the shared workflow
+- swapping the reviewer engine repository or ref per caller
+
+If future improvements require structured suggestion handling, richer output schemas, or more advanced comment deduplication, that work belongs in the reviewer engine repository rather than in this workflow repository.
