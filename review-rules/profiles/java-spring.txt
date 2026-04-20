@@ -1,0 +1,7 @@
+# reviewer-output.md and common.md are included automatically
+java
+spring
+api-contracts
+persistence
+messaging
+testing
