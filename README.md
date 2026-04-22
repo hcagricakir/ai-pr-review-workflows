@@ -9,23 +9,21 @@ It owns:
 - reusable GitHub Actions orchestration
 - shared markdown review rules
 - rule composition and layering
+- the internal reviewer engine runtime used by the workflow
 - setup and usage documentation
 
-It does not own the review engine implementation. The workflow checks out and builds a separate reviewer engine repository.
-
-## Companion Engine Repository
-
-The default reviewer engine repository is:
-
-- `hcagricakir/ai-pr-reviewer`
-
-That engine repository contains the Java CLI, prompt assembly, AI provider integration, diff loading, and GitHub review publishing logic.
+The internal reviewer engine contains the Java CLI, prompt assembly, AI provider integration, diff loading, and GitHub review publishing logic.
 
 ## Repository Layout
 
 ```text
 ai-pr-review-workflows/
 ├── .github/workflows/pr-review.yml
+├── reviewer-engine/
+│   ├── pom.xml
+│   ├── config/
+│   ├── policies/
+│   └── src/
 ├── review-rules/
 │   ├── reviewer-output.md
 │   ├── common.md
@@ -49,11 +47,10 @@ The reusable workflow:
 1. Resolves pull request metadata from the caller event.
 2. Checks out the caller repository at the pull request head commit.
 3. Checks out this shared workflow repository.
-4. Checks out the reviewer engine repository configured by input.
-5. Builds the reviewer engine with Java 21.
-6. Composes shared and optional repository-local markdown rules.
-7. Runs the reviewer CLI against the active pull request.
-8. Publishes GitHub pull request comments through the engine.
+4. Builds the internal reviewer engine with Java 21.
+5. Composes shared and optional repository-local markdown rules.
+6. Runs the reviewer CLI against the active pull request.
+7. Publishes GitHub pull request comments through the engine.
 
 ## Convention Sources
 
@@ -134,9 +131,12 @@ Whether the suggestion renders correctly in GitHub depends on the reviewer engin
 
 - `review_profile`: shared review profile bundle such as `java` or `java-spring`
 - `extra_rules_path`: optional file or directory in the caller repository, default `.github/review`
-- `reviewer_repo`: reviewer engine repository, default `hcagricakir/ai-pr-reviewer`
-- `reviewer_ref`: reviewer engine git ref, default `main`
-- `workflow_ref`: git ref used to checkout shared rule files and helper scripts from `hcagricakir/ai-pr-review-workflows`, default `main`
+- `workflow_ref`: optional git ref used to checkout shared rule files and the internal reviewer engine. When omitted, the workflow reuses the same ref that invoked the reusable workflow.
+
+Deprecated inputs retained only for backward compatibility:
+
+- `reviewer_repo`
+- `reviewer_ref`
 
 ## Required Permissions
 
@@ -154,17 +154,19 @@ Comment-triggered runs are restricted to same-repository pull requests. That avo
 
 ## Secrets And Variables
 
-Required secret:
-
-- `OPENAI_API_KEY`
-
 Preferred repository variable:
 
 - `OPENAI_MODEL`
 
 If `OPENAI_MODEL` is not set, the workflow falls back explicitly to `gpt-5.4-mini`.
 
-These values must be configured in the consuming repository that calls the reusable workflow. They do not need to be configured in `ai-pr-review-workflows` unless that repository also becomes a caller itself.
+`OPENAI_API_KEY` still must be available from the caller workflow context because GitHub reusable workflows do not directly read secrets that exist only in the called workflow repository. The practical way to avoid duplicating repository secrets is:
+
+1. create an organization-level Actions secret named `OPENAI_API_KEY`
+2. grant that secret to the repositories that will use this workflow
+3. call the reusable workflow with `secrets: inherit`
+
+This keeps consuming repositories free from per-repository API key setup while remaining compatible with GitHub's reusable workflow security model.
 
 ## Rule Layering
 
@@ -222,9 +224,6 @@ jobs:
     with:
       review_profile: java-spring
       extra_rules_path: .github/review
-      reviewer_repo: hcagricakir/ai-pr-reviewer
-      reviewer_ref: main
-      workflow_ref: main
 
   review_on_comment:
     if: ${{ github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '!review') }}
@@ -236,18 +235,19 @@ jobs:
     with:
       review_profile: java-spring
       extra_rules_path: .github/review
-      reviewer_repo: hcagricakir/ai-pr-reviewer
-      reviewer_ref: main
-      workflow_ref: main
 ```
 
 ## Consuming Repository Setup
 
-### 1. Add required secret
+### 1. Make the OpenAI key available
 
-Create repository secret:
+Recommended approach:
 
-- `OPENAI_API_KEY`
+- create organization Actions secret `OPENAI_API_KEY`
+- allow the consuming repositories to access it
+- use `secrets: inherit` in the caller workflow
+
+Repository-level `OPENAI_API_KEY` also works, but is no longer the recommended setup.
 
 ### 2. Add model variable
 

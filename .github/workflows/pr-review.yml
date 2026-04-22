@@ -13,23 +13,20 @@ on:
         default: ".github/review"
         type: string
       reviewer_repo:
-        description: Reviewer engine repository in owner/name format
+        description: Deprecated. The reviewer engine now ships inside ai-pr-review-workflows and this input is ignored.
         required: false
-        default: hcagricakir/ai-pr-reviewer
+        default: ""
         type: string
       reviewer_ref:
-        description: Git ref to checkout for the reviewer engine repository
+        description: Deprecated. The reviewer engine now ships inside ai-pr-review-workflows and this input is ignored.
         required: false
-        default: main
+        default: ""
         type: string
       workflow_ref:
-        description: Git ref to checkout for the shared workflow repository assets
+        description: Optional git ref used to checkout shared workflow assets. Defaults to the same ref that invoked this reusable workflow.
         required: false
-        default: main
+        default: ""
         type: string
-    secrets:
-      OPENAI_API_KEY:
-        required: true
 
 jobs:
   review:
@@ -83,30 +80,24 @@ jobs:
         with:
           ref: ${{ steps.pr-context.outputs.head_sha }}
 
+      - name: Resolve shared workflow assets ref
+        id: workflow-assets-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_ref='${{ inputs.workflow_ref }}'
+          if [[ -z "${workflow_ref}" ]]; then
+            workflow_ref='${{ github.workflow_ref }}'
+            workflow_ref="${workflow_ref##*@}"
+          fi
+          echo "value=${workflow_ref}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout shared workflow repository
         uses: actions/checkout@v4
         with:
           repository: hcagricakir/ai-pr-review-workflows
-          ref: ${{ inputs.workflow_ref }}
+          ref: ${{ steps.workflow-assets-ref.outputs.value }}
           path: .ai-pr-review-workflows
-
-      - name: Resolve reviewer engine ref
-        id: reviewer-ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          reviewer_ref='${{ inputs.reviewer_ref }}'
-          if [[ -z "${reviewer_ref}" ]]; then
-            reviewer_ref='${{ steps.pr-context.outputs.head_ref }}'
-          fi
-          echo "value=${reviewer_ref}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout reviewer engine repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.reviewer_repo }}
-          ref: ${{ steps.reviewer-ref.outputs.value }}
-          path: .ai-pr-reviewer-engine
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -116,7 +107,7 @@ jobs:
           cache: maven
 
       - name: Build reviewer engine
-        working-directory: .ai-pr-reviewer-engine
+        working-directory: .ai-pr-review-workflows/reviewer-engine
         run: ./mvnw -q -DskipTests package
 
       - name: Combine review rules
@@ -130,6 +121,19 @@ jobs:
             "${{ inputs.extra_rules_path }}"
           echo "COMBINED_RULES_FILE=${RUNNER_TEMP}/combined-review-rules.md" >> "$GITHUB_ENV"
 
+      - name: Validate OpenAI credential availability
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "::error::OPENAI_API_KEY is not available to the reusable workflow."
+            echo "::error::Reusable workflows cannot directly consume secrets stored only in the workflow repository."
+            echo "::error::Provide the key from the caller context, ideally through an organization Actions secret shared with consuming repositories and pass it using secrets: inherit."
+            exit 1
+          fi
+
       - name: Summarize review configuration
         shell: bash
         run: |
@@ -137,12 +141,13 @@ jobs:
             echo "### AI PR Review"
             echo "- Review profile: \`${{ inputs.review_profile }}\`"
             echo "- Repo-local rules path: \`${{ inputs.extra_rules_path }}\`"
-            echo "- Reviewer engine: \`${{ inputs.reviewer_repo }}@${{ steps.reviewer-ref.outputs.value }}\`"
+            echo "- Shared workflow assets ref: \`${{ steps.workflow-assets-ref.outputs.value }}\`"
+            echo "- Reviewer engine: \`internal (.ai-pr-review-workflows/reviewer-engine)\`"
             echo "- OpenAI model: \`${OPENAI_MODEL}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run reviewer engine and publish PR comments
-        working-directory: .ai-pr-reviewer-engine
+        working-directory: .ai-pr-review-workflows/reviewer-engine
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ env.OPENAI_MODEL }}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NormalizedReviewReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "overallAssessment",
+    "reviewAction",
+    "findings",
+    "notes"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "overallAssessment": {
+      "type": "string",
+      "enum": [
+        "no_findings",
+        "concerns",
+        "blocked"
+      ]
+    },
+    "reviewAction": {
+      "type": "string",
+      "enum": [
+        "comment",
+        "request_changes"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "severity",
+          "title",
+          "problem",
+          "codeSuggestion",
+          "confidence",
+          "filePath",
+          "startLine",
+          "endLine"
+        ],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "codeSuggestion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "filePath": {
+            "type": "string"
+          },
+          "startLine": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "endLine": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

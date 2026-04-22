@@ -1,0 +1,129 @@
+package dev.prreviewer.github;
+
+import dev.prreviewer.review.ReviewFinding;
+import dev.prreviewer.review.ReviewReport;
+import dev.prreviewer.review.ReviewAction;
+import dev.prreviewer.review.Severity;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class GitHubReviewPublisherTest {
+
+    @Test
+    void shouldBuildOneDraftPerAnchorAndSkipFindingsWithoutLineContext() {
+        ReviewFinding first = new ReviewFinding(
+                Severity.HIGH,
+                "Null guard regression",
+                "Null can reach compareTo.",
+                "",
+                0.99,
+                "src/main/java/example/Foo.java",
+                6,
+                9
+        );
+        ReviewFinding second = new ReviewFinding(
+                Severity.MEDIUM,
+                "Naming issue",
+                "Variable name is vague.",
+                "",
+                0.70,
+                "src/main/java/example/Foo.java",
+                6,
+                9
+        );
+        ReviewFinding skipped = new ReviewFinding(
+                Severity.LOW,
+                "No anchor",
+                "No line information.",
+                "",
+                0.60,
+                "src/main/java/example/Foo.java",
+                null,
+                null
+        );
+
+        ReviewReport report = new ReviewReport(
+                "review-1",
+                Instant.now(),
+                "mock",
+                "github-pr:42",
+                "summary",
+                "concerns",
+                ReviewAction.COMMENT,
+                List.of(first, second, skipped),
+                List.of(),
+                List.of("policy")
+        );
+
+        List<GitHubReviewPublisher.CommentDraft> drafts = GitHubReviewPublisher.buildCommentDrafts(report);
+
+        assertThat(drafts).hasSize(1);
+        assertThat(drafts.getFirst().path()).isEqualTo("src/main/java/example/Foo.java");
+        assertThat(drafts.getFirst().startLine()).isEqualTo(6);
+        assertThat(drafts.getFirst().line()).isEqualTo(9);
+        assertThat(drafts.getFirst().findings()).hasSize(2);
+    }
+
+    @Test
+    void shouldRenderMarkerAndSingleFindingBody() {
+        ReviewFinding finding = new ReviewFinding(
+                Severity.HIGH,
+                "Null guard regression",
+                "Null can reach compareTo.",
+                "if (value == null) {\n    return;\n}",
+                0.99,
+                "src/main/java/example/Foo.java",
+                6,
+                9
+        );
+
+        String body = GitHubReviewPublisher.renderCommentBody(List.of(finding));
+
+        assertThat(body).contains(GitHubReviewPublisher.COMMENT_MARKER);
+        assertThat(body).contains("**[high] Null guard regression**");
+        assertThat(body).contains("Null can reach compareTo.");
+        assertThat(body).contains("```suggestion");
+        assertThat(body).doesNotContain("Why it matters:");
+        assertThat(body).doesNotContain("Confidence:");
+    }
+
+    @Test
+    void shouldRenderRequestChangesReviewBody() {
+        ReviewFinding finding = new ReviewFinding(
+                Severity.HIGH,
+                "Null guard regression",
+                "Null can reach compareTo.",
+                "",
+                0.99,
+                "src/main/java/example/Foo.java",
+                6,
+                9
+        );
+        ReviewReport report = new ReviewReport(
+                "review-2",
+                Instant.now(),
+                "mock",
+                "github-pr:42",
+                "Blocking issue detected.",
+                "blocked",
+                ReviewAction.REQUEST_CHANGES,
+                List.of(finding),
+                List.of("Mock provider was used."),
+                List.of("policy")
+        );
+
+        String body = GitHubReviewPublisher.renderReviewBody(
+                report,
+                GitHubReviewPublisher.buildCommentDrafts(report)
+        );
+
+        assertThat(body).contains(GitHubReviewPublisher.REVIEW_MARKER);
+        assertThat(body).contains("- Overall assessment: blocked");
+        assertThat(body).contains("- Review action: request_changes");
+        assertThat(body).contains("Blocking issue detected.");
+    }
+}
