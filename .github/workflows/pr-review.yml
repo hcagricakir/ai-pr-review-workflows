@@ -27,6 +27,11 @@ on:
         required: false
         default: ""
         type: string
+      runtime_config_path:
+        description: Path inside ai-pr-review-workflows to the reviewer runtime config file.
+        required: false
+        default: "reviewer-engine/config/runtime/github-pr-review.yml"
+        type: string
 
 jobs:
   review:
@@ -143,12 +148,16 @@ jobs:
             echo "- Repo-local rules path: \`${{ inputs.extra_rules_path }}\`"
             echo "- Shared workflow assets ref: \`${{ steps.workflow-assets-ref.outputs.value }}\`"
             echo "- Reviewer engine: \`internal (.ai-pr-review-workflows/reviewer-engine)\`"
+            echo "- Runtime config: \`${{ inputs.runtime_config_path }}\`"
             echo "- OpenAI model: \`${OPENAI_MODEL}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run reviewer engine and publish PR comments
         working-directory: .ai-pr-review-workflows/reviewer-engine
         env:
+          PR_REVIEW_CONFIG_PATH: ${{ inputs.runtime_config_path }}
+          PR_REVIEW_PR_NUMBER: ${{ steps.pr-context.outputs.number }}
+          PR_REVIEW_EXTRA_RULES_FILE: ${{ env.COMBINED_RULES_FILE }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ env.OPENAI_MODEL }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -156,12 +165,4 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_BASE_BRANCH: ${{ steps.pr-context.outputs.base_ref }}
         run: |
-          echo "Using OpenAI model: ${OPENAI_MODEL}"
-          java -jar target/ai-pr-reviewer.jar \
-            review \
-            --config config/application.example.yml \
-            --github-pr "${{ steps.pr-context.outputs.number }}" \
-            --provider openai \
-            --output-format markdown \
-            --publish-github-review-comments \
-            --extra-rules-file "${COMBINED_RULES_FILE}"
+          bash scripts/run-github-pr-review.sh

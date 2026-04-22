@@ -22,7 +22,9 @@ ai-pr-review-workflows/
 ├── reviewer-engine/
 │   ├── pom.xml
 │   ├── config/
+│   │   └── runtime/
 │   ├── policies/
+│   ├── scripts/
 │   └── src/
 ├── review-rules/
 │   ├── reviewer-output.md
@@ -49,7 +51,7 @@ The reusable workflow:
 3. Checks out this shared workflow repository.
 4. Builds the internal reviewer engine with Java 21.
 5. Composes shared and optional repository-local markdown rules.
-6. Runs the reviewer CLI against the active pull request.
+6. Runs the reviewer runtime launcher against the active pull request using a runtime config file.
 7. Publishes GitHub pull request comments through the engine.
 
 ## Convention Sources
@@ -132,6 +134,7 @@ Whether the suggestion renders correctly in GitHub depends on the reviewer engin
 - `review_profile`: shared review profile bundle such as `java` or `java-spring`
 - `extra_rules_path`: optional file or directory in the caller repository, default `.github/review`
 - `workflow_ref`: optional git ref used to checkout shared rule files and the internal reviewer engine. When omitted, the workflow reuses the same ref that invoked the reusable workflow.
+- `runtime_config_path`: internal runtime config path inside `ai-pr-review-workflows`, default `reviewer-engine/config/runtime/github-pr-review.yml`
 
 Deprecated inputs retained only for backward compatibility:
 
@@ -167,6 +170,17 @@ If `OPENAI_MODEL` is not set, the workflow falls back explicitly to `gpt-5.4-min
 3. call the reusable workflow with `secrets: inherit`
 
 This keeps consuming repositories free from per-repository API key setup while remaining compatible with GitHub's reusable workflow security model.
+
+## Runtime Configuration
+
+The workflow no longer hardcodes the Java invocation details inline. Instead it delegates to:
+
+- runtime config: `reviewer-engine/config/runtime/github-pr-review.yml`
+- launcher script: `reviewer-engine/scripts/run-github-pr-review.sh`
+
+The runtime config controls provider, output format, publish mode, diff filters, and the env-backed extra rules file path. The launcher script only supplies the dynamic pull request context and executes the jar.
+
+This keeps the reusable workflow thin while allowing the runtime to be executed locally with the same config-driven behavior.
 
 ## Rule Layering
 
@@ -224,6 +238,7 @@ jobs:
     with:
       review_profile: java-spring
       extra_rules_path: .github/review
+      runtime_config_path: reviewer-engine/config/runtime/github-pr-review.yml
 
   review_on_comment:
     if: ${{ github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '!review') }}
@@ -235,6 +250,7 @@ jobs:
     with:
       review_profile: java-spring
       extra_rules_path: .github/review
+      runtime_config_path: reviewer-engine/config/runtime/github-pr-review.yml
 ```
 
 ## Consuming Repository Setup

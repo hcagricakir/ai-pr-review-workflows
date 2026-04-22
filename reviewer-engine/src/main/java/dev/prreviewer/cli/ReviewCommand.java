@@ -64,9 +64,10 @@ public final class ReviewCommand implements Callable<Integer> {
 
     @Option(
             names = "--publish-github-review-comments",
+            negatable = true,
             description = "Submit a GitHub pull request review with inline comments and either COMMENT or REQUEST_CHANGES."
     )
-    private boolean publishGitHubReviewComments;
+    private Boolean publishGitHubReviewComments;
 
     @Override
     public Integer call() {
@@ -94,7 +95,7 @@ public final class ReviewCommand implements Callable<Integer> {
         }
 
         ReviewOrchestrator reviewOrchestrator = new ReviewOrchestrator(new PromptTemplateRenderer(projectRoot));
-        Path resolvedExtraRulesFile = resolveExtraRulesPath(projectRoot);
+        Path resolvedExtraRulesFile = resolveExtraRulesPath(projectRoot, applicationConfig);
         ReviewContext reviewContext = reviewOrchestrator.prepareContext(
                 reviewInput,
                 agentProfile,
@@ -124,7 +125,7 @@ public final class ReviewCommand implements Callable<Integer> {
                 : applicationConfig.review().outputFormat();
         System.out.println(new OutputFormatterFactory().create(outputFormat).format(report));
 
-        if (publishGitHubReviewComments) {
+        if (shouldPublishGitHubReviewComments(applicationConfig)) {
             validateGitHubPublishInputs();
             GitHubReviewPublisher.PublishResult publishResult = new GitHubReviewPublisher(applicationConfig.github())
                     .publishReview(githubPullRequest, report);
@@ -191,11 +192,15 @@ public final class ReviewCommand implements Callable<Integer> {
         return projectRoot.resolve(profileLocation).normalize();
     }
 
-    private Path resolveExtraRulesPath(Path projectRoot) {
-        if (extraRulesFile == null) {
+    private Path resolveExtraRulesPath(Path projectRoot, ApplicationConfig applicationConfig) {
+        if (extraRulesFile != null) {
+            return projectRoot.resolve(extraRulesFile).normalize();
+        }
+        String configuredExtraRulesFile = applicationConfig.review().extraRulesFile();
+        if (configuredExtraRulesFile == null || configuredExtraRulesFile.isBlank()) {
             return null;
         }
-        return projectRoot.resolve(extraRulesFile).normalize();
+        return projectRoot.resolve(configuredExtraRulesFile).normalize();
     }
 
     private void validateSingleSourceSelection() {
@@ -216,5 +221,12 @@ public final class ReviewCommand implements Callable<Integer> {
         if (githubPullRequest == null) {
             throw new IllegalArgumentException("--publish-github-review-comments requires --github-pr.");
         }
+    }
+
+    private boolean shouldPublishGitHubReviewComments(ApplicationConfig applicationConfig) {
+        if (publishGitHubReviewComments != null) {
+            return publishGitHubReviewComments;
+        }
+        return applicationConfig.review().publishGitHubReviewComments();
     }
 }

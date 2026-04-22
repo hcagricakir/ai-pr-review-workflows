@@ -73,6 +73,8 @@ Shared workflow integration option:
 - GitHub API settings
 - demo scenario path
 
+`config/runtime/github-pr-review.yml` contains the default GitHub PR review runtime used by the shared workflow. It keeps provider, output, publish mode, and env-backed extra-rules wiring in YAML instead of hardcoding those decisions in the workflow file.
+
 Important environment variables:
 
 - `OPENAI_API_KEY`
@@ -111,6 +113,18 @@ Run against a pull request:
 java -jar target/ai-pr-reviewer.jar review --github-pr 123 --provider openai
 ```
 
+Run the same config-driven GitHub PR flow used by the shared workflow:
+
+```bash
+PR_REVIEW_PR_NUMBER=123 \
+OPENAI_API_KEY=... \
+OPENAI_MODEL=gpt-5.4-mini \
+GITHUB_TOKEN=... \
+GITHUB_REPO_OWNER=owner \
+GITHUB_REPO_NAME=repo \
+bash scripts/run-github-pr-review.sh
+```
+
 Run with merged markdown rules:
 
 ```bash
@@ -140,5 +154,5 @@ The parent reusable workflow repository is expected to:
 2. checkout `ai-pr-review-workflows`
 3. build this engine from `reviewer-engine/`
 4. merge shared and repository-specific markdown rules
-5. run the engine with `--extra-rules-file`
+5. run the engine through `scripts/run-github-pr-review.sh`
 6. publish review comments back to GitHub

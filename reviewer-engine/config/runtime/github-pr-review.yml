@@ -1,9 +1,9 @@
 review:
-  provider: mock
+  provider: openai
   agentProfile: config/agents/default-reviewer.yml
   outputFormat: markdown
-  extraRulesFile:
-  publishGitHubReviewComments: false
+  extraRulesFile: ${PR_REVIEW_EXTRA_RULES_FILE:}
+  publishGitHubReviewComments: true
   maxFiles: 25
   maxDiffCharacters: 30000
   includePatterns:
@@ -35,3 +35,4 @@ github:
 
 demo:
   scenariosDir: demo/scenarios
+

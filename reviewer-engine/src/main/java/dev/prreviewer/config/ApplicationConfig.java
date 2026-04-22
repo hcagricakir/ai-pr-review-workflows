@@ -29,6 +29,8 @@ public record ApplicationConfig(
             String provider,
             String agentProfile,
             String outputFormat,
+            String extraRulesFile,
+            Boolean publishGitHubReviewComments,
             Integer maxFiles,
             Integer maxDiffCharacters,
             List<String> includePatterns,
@@ -39,6 +41,8 @@ public record ApplicationConfig(
                 @JsonProperty("provider") String provider,
                 @JsonProperty("agentProfile") String agentProfile,
                 @JsonProperty("outputFormat") String outputFormat,
+                @JsonProperty("extraRulesFile") String extraRulesFile,
+                @JsonProperty("publishGitHubReviewComments") Boolean publishGitHubReviewComments,
                 @JsonProperty("maxFiles") Integer maxFiles,
                 @JsonProperty("maxDiffCharacters") Integer maxDiffCharacters,
                 @JsonProperty("includePatterns") List<String> includePatterns,
@@ -47,6 +51,8 @@ public record ApplicationConfig(
             this.provider = provider == null ? "mock" : provider;
             this.agentProfile = agentProfile == null ? "config/agents/default-reviewer.yml" : agentProfile;
             this.outputFormat = outputFormat == null ? "markdown" : outputFormat;
+            this.extraRulesFile = extraRulesFile == null || extraRulesFile.isBlank() ? null : extraRulesFile;
+            this.publishGitHubReviewComments = publishGitHubReviewComments != null && publishGitHubReviewComments;
             this.maxFiles = maxFiles == null ? 25 : maxFiles;
             this.maxDiffCharacters = maxDiffCharacters == null ? 30000 : maxDiffCharacters;
             this.includePatterns = includePatterns == null ? List.of("**/*.java") : List.copyOf(includePatterns);
@@ -54,7 +60,7 @@ public record ApplicationConfig(
         }
 
         public static ReviewRuntimeConfig defaults() {
-            return new ReviewRuntimeConfig(null, null, null, null, null, null, null);
+            return new ReviewRuntimeConfig(null, null, null, null, null, null, null, null, null);
         }
     }
 
