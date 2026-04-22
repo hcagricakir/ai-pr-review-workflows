@@ -114,10 +114,11 @@ The shared rules now explicitly steer the reviewer toward shorter, higher-signal
 Expected comment shape:
 
 - short issue title
-- 2-4 short sentences
-- clear risk or regression path
-- no long background explanation
-- no style-only noise
+- 1-2 short sentences describing only the problem
+- strongest 1-3 findings only
+- no "Why it matters", "Recommendation", or "Confidence" sections
+- no long background explanation or repeated rationale
+- optional fenced code block with info string `suggestion` when the fix is local and safe
 
 GitHub code suggestions are now requested only when the fix is:
 
